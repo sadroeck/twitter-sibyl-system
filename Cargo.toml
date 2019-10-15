@@ -5,6 +5,8 @@ authors = ["Sam De Roeck <sadroeck@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+actix-web = "1.0"
+actix-files = "0.1"
 clap = "2.33"
 log = "0.4"
 futures = "0.1"

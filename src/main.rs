@@ -5,6 +5,7 @@ use log::Level;
 
 mod config;
 mod scraper;
+mod server;
 mod tweet;
 
 fn cmd_line_config() -> String {

@@ -1,3 +1,4 @@
+use crate::tweet::Tweet;
 use clap::{App, Arg};
 use futures::future::Future;
 use futures::stream::Stream;
@@ -5,6 +6,7 @@ use log::{error, info, Level};
 use twitter_stream::{Token, TwitterStreamBuilder};
 
 mod config;
+mod tweet;
 
 fn cmd_line_config() -> String {
     let matches = App::new("twitter-sibyl-system")
@@ -38,15 +40,16 @@ fn main() {
         config.scraper.access_secret,
     );
     let single_stream_printer = TwitterStreamBuilder::filter(twitter_api_token)
-        .track(Some("@Twitter"))
+        .track(config.scraper.topics.join(",").as_str())
         .listen()
         .unwrap()
         .flatten_stream()
-        .for_each(|json| {
-            info!("[{topic}] {data}", topic = "?", data = json);
-            Ok(())
+        .map_err(|err| error!("Error while processing twitter stream: {}", err))
+        .and_then(|x| {
+            serde_json::from_str::<Tweet>(&x)
+                .map_err(|err| error!("Error while parsing tweet as JSON: {}", err))
         })
-        .map_err(|e| error!("error: {}", e));
+        .for_each(|json| Ok(info!("[{topic}] {data:?}", topic = "?", data = json)));
 
     tokio::runtime::run(single_stream_printer);
 }

@@ -1,0 +1,9 @@
+[package]
+name = "twitter-sibyl-system"
+version = "0.1.0"
+authors = ["Sam De Roeck <sam.de.roeck@wdc.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]

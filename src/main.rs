@@ -1,11 +1,10 @@
-use crate::tweet::Tweet;
+use crate::scraper::Scraper;
 use clap::{App, Arg};
-use futures::future::Future;
-use futures::stream::Stream;
-use log::{error, info, Level};
-use twitter_stream::{Token, TwitterStreamBuilder};
+
+use log::Level;
 
 mod config;
+mod scraper;
 mod tweet;
 
 fn cmd_line_config() -> String {
@@ -33,23 +32,9 @@ fn main() {
     // Fetch configuration
     let config_uri = cmd_line_config();
     let config = config::load_config(&config_uri).expect("Invalid configuration");
-    let twitter_api_token = Token::new(
-        config.scraper.consumer_key,
-        config.scraper.consumer_secret,
-        config.scraper.access_key,
-        config.scraper.access_secret,
-    );
-    let single_stream_printer = TwitterStreamBuilder::filter(twitter_api_token)
-        .track(config.scraper.topics.join(",").as_str())
-        .listen()
-        .unwrap()
-        .flatten_stream()
-        .map_err(|err| error!("Error while processing twitter stream: {}", err))
-        .and_then(|x| {
-            serde_json::from_str::<Tweet>(&x)
-                .map_err(|err| error!("Error while parsing tweet as JSON: {}", err))
-        })
-        .for_each(|json| Ok(info!("[{topic}] {data:?}", topic = "?", data = json)));
 
-    tokio::runtime::run(single_stream_printer);
+    // Initialize Scraper
+    let mut scraper = Scraper::new(config.scraper);
+    // Block forever
+    scraper.run().expect("Could not run scraper");
 }

@@ -35,13 +35,13 @@ fn main() -> std::io::Result<()> {
     let config = config::load_config(&config_uri).expect("Invalid configuration");
 
     // Initialize Scraper
-    let _scraper = Scraper::new(config.scraper);
+    let scraper = Scraper::new(config.scraper);
 
     // Initialize actix runtime
     let actor_system = actix_rt::System::new("webservice");
 
     // Initialize server
-    server::run(config.server).expect("Could not start server");
+    server::run(config.server, scraper.metrics()).expect("Could not start server");
 
     // Block until actor system has stopped
     actor_system.run()

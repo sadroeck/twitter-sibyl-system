@@ -1,9 +1,10 @@
 use crate::config::ScraperConfig;
 use crate::tweet::Tweet;
-use futures::future::Future;
 use futures::stream::Stream;
 use log::{error, info};
-use twitter_stream::{Token, TwitterStreamBuilder};
+use twitter_stream::Token;
+
+mod rate_controlled_stream;
 
 pub struct Scraper {
     api_token: Token<String, String>,
@@ -32,21 +33,21 @@ impl Scraper {
         scraper
     }
 
+    /// Subscribe to a stream of tweets containing the specified topic
     pub fn subscribe_to(&mut self, topic: String) {
         info!("Subscribing to topic {}", &topic);
-        let single_stream_printer = TwitterStreamBuilder::filter(self.api_token.clone())
-            .stall_warnings(true)
-            .track(topic.as_str())
-            .listen()
-            .unwrap()
-            .flatten_stream()
-            .map_err(|err| error!("Error while processing twitter stream: {}", err))
-            .and_then(|x| {
-                serde_json::from_str::<Tweet>(&x)
-                    .map_err(|err| error!("Error while parsing tweet as JSON: {}", err))
-            })
-            .for_each(move |json| Ok(info!("[{topic}] {data:?}", topic = &topic, data = json)));
-        self.runtime.spawn(single_stream_printer);
+        let tweet_logger = rate_controlled_stream::RateLimitedStream::from_topic(
+            self.api_token.clone(),
+            topic.clone(),
+        )
+        .map_err(|err| error!("Error while processing twitter stream: {}", err))
+        .and_then(|item| {
+            serde_json::from_str::<Tweet>(&item)
+                .map_err(|err| error!("Error while parsing tweet as JSON: {}", err))
+        })
+        .for_each(move |tweet| Ok(info!("[{topic}] {tweet:?}", topic = &topic, tweet = tweet)));
+
+        self.runtime.spawn(tweet_logger);
     }
 
     pub fn run(&mut self) -> Result<(), ()> {

@@ -25,7 +25,7 @@ fn cmd_line_config() -> String {
     String::from(matches.value_of("config").unwrap_or("config.toml").trim())
 }
 
-fn main() {
+fn main() -> std::io::Result<()> {
     // Initialize logging
     simple_logger::init_with_level(Level::Info)
         .expect("Could not initialize the logging framework");
@@ -35,7 +35,14 @@ fn main() {
     let config = config::load_config(&config_uri).expect("Invalid configuration");
 
     // Initialize Scraper
-    let mut scraper = Scraper::new(config.scraper);
-    // Block forever
-    scraper.run().expect("Could not run scraper");
+    let _scraper = Scraper::new(config.scraper);
+
+    // Initialize actix runtime
+    let actor_system = actix_rt::System::new("webservice");
+
+    // Initialize server
+    server::run(config.server).expect("Could not start server");
+
+    // Block until actor system has stopped
+    actor_system.run()
 }

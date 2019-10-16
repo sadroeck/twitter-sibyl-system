@@ -1,7 +1,7 @@
 use crate::config::ServerConfig;
 use actix_files as fs;
 use actix_web::dev::Server;
-use actix_web::http::{Method, StatusCode};
+use actix_web::http::StatusCode;
 use actix_web::{get, guard, middleware, web, App, HttpResponse, HttpServer};
 
 /// Home page

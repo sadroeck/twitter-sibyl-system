@@ -50,7 +50,7 @@ impl Scraper {
         self.runtime.spawn(tweet_logger);
     }
 
-    pub fn run(&mut self) -> Result<(), ()> {
-        self.runtime.block_on(futures::future::empty())
-    }
+    //    pub fn run(&mut self) -> Result<(), ()> {
+    //        self.runtime.block_on(futures::future::empty())
+    //    }
 }

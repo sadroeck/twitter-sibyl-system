@@ -101,8 +101,6 @@ mod test {
 
     #[test]
     fn parse_twitter_date_string() {
-        let now = Utc::now();
-        println!("{}", now.format(TWITTER_DATE_FORMAT));
         let sample_string = "Wed Oct 16 20:18:02 +0000 2019";
         let parsed = parse_time(sample_string);
         assert!(

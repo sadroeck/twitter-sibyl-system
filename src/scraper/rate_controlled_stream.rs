@@ -1,61 +1,41 @@
 use futures::future::Future;
-use futures::{try_ready, Async, Stream};
-use std::convert::From;
-use std::time::Duration;
+use futures::{Async, FlattenStream, Stream};
+use log::info;
+use std::time::{Duration, Instant};
 use twitter_stream::error::Error as TwitterError;
-use twitter_stream::{types::StatusCode, Token, TwitterStream, TwitterStreamBuilder};
+use twitter_stream::{
+    types::StatusCode, FutureTwitterStream, Token, TwitterStream, TwitterStreamBuilder,
+};
 
 type ApiToken = Token<String, String>;
 
 pub struct RateLimitedStream {
-    inner: Box<
-        dyn Stream<
-                Item = Input<<TwitterStream as Stream>::Item>,
-                Error = <TwitterStream as Stream>::Error,
-            > + Send,
-    >,
+    inner: FlattenStream<FutureTwitterStream>,
     topic: String,
     api_token: ApiToken,
+    halted_since: Option<Instant>,
+    state: StreamAction,
+}
+
+fn create_stream(api_token: ApiToken, topic: &str) -> FlattenStream<FutureTwitterStream> {
+    TwitterStreamBuilder::filter(api_token)
+        .stall_warnings(true)
+        .track(topic)
+        .listen()
+        .unwrap()
+        .flatten_stream()
 }
 
 impl RateLimitedStream {
-    fn create_stream(
-        api_token: ApiToken,
-        topic: &str,
-    ) -> Box<
-        dyn Stream<
-                Item = Input<<TwitterStream as Stream>::Item>,
-                Error = <TwitterStream as Stream>::Error,
-            > + Send,
-    > {
-        let stream = TwitterStreamBuilder::filter(api_token)
-            .stall_warnings(true)
-            .track(topic)
-            .listen()
-            .unwrap()
-            .flatten_stream()
-            .then(|result| match result {
-                Ok(val) => Ok(Input::Content(val)),
-                Err(TwitterError::Http(status_code)) => {
-                    Ok(Input::Action(process_twitter_error(status_code)))
-                }
-                Err(other_err) => Err(other_err),
-            });
-        Box::new(stream)
-    }
-
     pub fn from_topic(api_token: ApiToken, topic: String) -> Self {
         RateLimitedStream {
-            inner: RateLimitedStream::create_stream(api_token.clone(), topic.as_str()),
+            inner: create_stream(api_token.clone(), topic.as_str()),
             topic,
             api_token,
+            halted_since: None,
+            state: StreamAction::Continue,
         }
     }
-}
-
-enum Input<T> {
-    Action(StreamAction),
-    Content(T),
 }
 
 enum StreamAction {
@@ -83,28 +63,61 @@ impl Stream for RateLimitedStream {
     type Error = <TwitterStream as Stream>::Error;
 
     fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
-        match try_ready!(self.inner.poll()) {
-            Some(Input::Content(content)) => Ok(Async::Ready(Some(content))),
-            Some(Input::Action(action)) => match action {
-                StreamAction::Exit => panic!("Aborting the stream"),
-                StreamAction::Halt(duration) => {
-                    std::thread::sleep(duration);
+        match &self.state {
+            StreamAction::Continue => match self.inner.poll() {
+                Err(TwitterError::Http(status_code)) => {
+                    self.state = process_twitter_error(status_code);
                     Ok(Async::NotReady)
                 }
-                StreamAction::RestartNow => {
-                    self.inner = RateLimitedStream::create_stream(
-                        self.api_token.clone(),
-                        self.topic.as_str(),
-                    );
+                Err(other_err) => Err(other_err),
+                Ok(Async::NotReady) => Ok(Async::NotReady),
+                Ok(Async::Ready(Some(content))) => Ok(Async::Ready(Some(content))),
+                Ok(Async::Ready(None)) => {
+                    self.state = StreamAction::Halt(Duration::from_secs(2));
                     Ok(Async::NotReady)
                 }
-                StreamAction::RestartAfter(duration) => {
-                    std::thread::sleep(duration);
-                    Ok(Async::NotReady)
-                }
-                StreamAction::Continue => Ok(Async::NotReady),
             },
-            None => return Ok(None.into()),
+            StreamAction::RestartNow => {
+                info!("Restarting topic stream immediately");
+                self.inner = create_stream(self.api_token.clone(), self.topic.as_str());
+                Ok(Async::NotReady)
+            }
+            StreamAction::RestartAfter(wait_time) => {
+                let now = Instant::now();
+                match self.halted_since.map(|instant| now.duration_since(instant)) {
+                    None => {
+                        info!("Restarting topic stream after {:?}", &wait_time);
+                        self.halted_since = Some(now);
+                        Ok(Async::NotReady)
+                    }
+                    Some(elapsed) => {
+                        if elapsed > *wait_time {
+                            self.inner = create_stream(self.api_token.clone(), self.topic.as_str());
+                            self.state = StreamAction::Continue;
+                        }
+                        Ok(Async::NotReady)
+                    }
+                }
+            }
+            StreamAction::Halt(wait_time) => {
+                let now = Instant::now();
+                match self.halted_since.map(|instant| now.duration_since(instant)) {
+                    None => {
+                        info!("Halting topic stream for {:?}", &wait_time);
+                        self.halted_since = Some(now);
+                        Ok(Async::NotReady)
+                    }
+                    Some(elapsed) => {
+                        if elapsed > *wait_time {
+                            self.state = StreamAction::Continue;
+                        }
+                        Ok(Async::NotReady)
+                    }
+                }
+            }
+            StreamAction::Exit => {
+                panic!("Cancel twitter topic stream");
+            }
         }
     }
 }

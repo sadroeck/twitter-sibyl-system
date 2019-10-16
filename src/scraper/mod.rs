@@ -11,7 +11,7 @@ pub mod metrics;
 mod rate_controlled_stream;
 mod sentiment;
 
-const TWITTER_DATE_FORMAT: &'static str = "%Y-%m-%d %H:%M:%S";
+const TWITTER_DATE_FORMAT: &'static str = "%a %b %d %H:%M:%S %z %Y";
 
 pub struct Scraper {
     api_token: Token<String, String>,
@@ -92,4 +92,23 @@ impl Scraper {
 fn parse_time(time_str: &str) -> Result<NaiveDateTime, ()> {
     NaiveDateTime::parse_from_str(time_str, TWITTER_DATE_FORMAT)
         .map_err(|err| error!("Error parsing date: {}", err))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use chrono::Utc;
+
+    #[test]
+    fn parse_twitter_date_string() {
+        let now = Utc::now();
+        println!("{}", now.format(TWITTER_DATE_FORMAT));
+        let sample_string = "Wed Oct 16 20:18:02 +0000 2019";
+        let parsed = parse_time(sample_string);
+        assert!(
+            parsed.is_ok(),
+            "Could not parse Twitter date string: {}",
+            sample_string
+        );
+    }
 }

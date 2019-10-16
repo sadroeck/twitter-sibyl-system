@@ -97,7 +97,6 @@ fn parse_time(time_str: &str) -> Result<NaiveDateTime, ()> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use chrono::Utc;
 
     #[test]
     fn parse_twitter_date_string() {

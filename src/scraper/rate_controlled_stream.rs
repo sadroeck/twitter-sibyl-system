@@ -20,7 +20,6 @@ pub struct RateLimitedStream {
 
 fn create_stream(api_token: ApiToken, topic: &str) -> FlattenStream<FutureTwitterStream> {
     TwitterStreamBuilder::filter(api_token)
-        //        .stall_warnings(true)
         .track(topic)
         .listen()
         .unwrap()

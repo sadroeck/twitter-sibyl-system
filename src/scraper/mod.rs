@@ -1,7 +1,8 @@
 use crate::config::ScraperConfig;
 use crate::scraper::metrics::{Sample, TimeSeries};
 use crate::tweet::Tweet;
-use chrono::NaiveDateTime;
+//use chrono::NaiveDateTime;
+use chrono::Utc;
 use futures::stream::Stream;
 use log::{error, info, warn};
 use metrics_runtime::{Controller, Receiver};
@@ -13,7 +14,7 @@ pub mod metrics;
 mod rate_controlled_stream;
 mod sentiment;
 
-const TWITTER_DATE_FORMAT: &'static str = "%a %b %d %H:%M:%S %z %Y";
+//const TWITTER_DATE_FORMAT: &'static str = "%a %b %d %H:%M:%S %z %Y";
 const DEFAULT_BATCH_SIZE: usize = 100;
 
 pub struct Scraper {
@@ -97,13 +98,9 @@ impl Scraper {
                 tweets_queued.record(limit.limit.track as i64);
                 None
             }
-            Tweet::Content(content) => parse_time(content.created_at.as_str())
-                .map(|time| Sample {
-                    time: time.timestamp(),
-                    value: sentiment::message_value(content.text.as_str()),
-                })
-                .ok()
-                .map(|sample| (start, sample)),
+            Tweet::Content(content) => {
+                Some((start, sentiment::message_value(content.text.as_str())))
+            }
             Tweet::Disconnect(disconnect) => {
                 warn!(
                     "[{topic}] Stream disconnected: {reason}",
@@ -125,11 +122,15 @@ impl Scraper {
         .for_each(move |samples| {
             processed_tweets.record(samples.len() as u64);
             let storage_start = Instant::now();
+            let timestamp = Utc::now().timestamp();
             let result = time_series
                 .data
                 .write()
                 .map(|mut store| {
-                    store.extend_from_slice(&samples[..]);
+                    store.extend(samples.into_iter().map(|value| Sample {
+                        time: timestamp,
+                        value,
+                    }));
                 })
                 .map_err(|err| error!("Error storing sample: {}", err));
             storage_time.record_timing(storage_start, Instant::now());
@@ -144,23 +145,23 @@ impl Scraper {
     }
 }
 
-fn parse_time(time_str: &str) -> Result<NaiveDateTime, ()> {
-    NaiveDateTime::parse_from_str(time_str, TWITTER_DATE_FORMAT)
-        .map_err(|err| error!("Error parsing date: {}", err))
-}
+//fn parse_time(time_str: &str) -> Result<NaiveDateTime, ()> {
+//    NaiveDateTime::parse_from_str(time_str, TWITTER_DATE_FORMAT)
+//        .map_err(|err| error!("Error parsing date: {}", err))
+//}
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn parse_twitter_date_string() {
-        let sample_string = "Wed Oct 16 20:18:02 +0000 2019";
-        let parsed = parse_time(sample_string);
-        assert!(
-            parsed.is_ok(),
-            "Could not parse Twitter date string: {}",
-            sample_string
-        );
-    }
-}
+//#[cfg(test)]
+//mod test {
+//    use super::*;
+//
+//    #[test]
+//    fn parse_twitter_date_string() {
+//        let sample_string = "Wed Oct 16 20:18:02 +0000 2019";
+//        let parsed = parse_time(sample_string);
+//        assert!(
+//            parsed.is_ok(),
+//            "Could not parse Twitter date string: {}",
+//            sample_string
+//        );
+//    }
+//}

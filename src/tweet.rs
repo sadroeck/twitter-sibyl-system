@@ -9,7 +9,7 @@ pub struct Limit {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Content {
     pub created_at: String,
-    pub id_str: String,
+    //    pub id_str: String,
     pub text: String,
 }
 

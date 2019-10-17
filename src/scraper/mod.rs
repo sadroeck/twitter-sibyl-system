@@ -66,9 +66,13 @@ impl Scraper {
             })
         })
         //        .inspect(|tweet| info!("Tweet: {tweet:?}", tweet = tweet))
-        .filter_map(|tweet| match tweet {
+        .filter_map(move |tweet| match tweet {
             Tweet::ApiLimit(limit) => {
-                warn!("Limit warning: {}", limit.track);
+                warn!(
+                    "[{topic}] {open} undelivered tweets",
+                    topic = &topic,
+                    open = limit.limit.track
+                );
                 None
             }
             Tweet::Content(content) => parse_time(content.created_at.as_str())

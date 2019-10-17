@@ -36,8 +36,19 @@ pub struct StallWarning {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum Tweet {
-    ApiLimit(Limit),
+    ApiLimit(ApiLimit),
     Content(Content),
     Disconnect(Disconnect),
     StallWarning(StallWarning),
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_limit_msg() {
+        let msg = "{\"limit\":{\"track\":1678,\"timestamp_ms\":\"1571317682725\"}}";
+        serde_json::from_str::<Tweet>(&msg).expect("Could not decode limit msg");
+    }
 }

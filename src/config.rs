@@ -44,7 +44,6 @@ impl fmt::Display for ScraperConfig {
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct ScraperConfig {
-    pub workers: Option<usize>,
     pub consumer_key: String,
     pub consumer_secret: String,
     pub access_key: String,

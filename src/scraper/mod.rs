@@ -22,7 +22,7 @@ pub struct Scraper {
 impl Scraper {
     pub fn new(config: ScraperConfig) -> Self {
         let runtime = tokio::runtime::Builder::new()
-            .core_threads(config.workers.unwrap_or_else(|| num_cpus::get()))
+            .core_threads(config.topics.len())
             .build()
             .expect("Could not initialize scraper runtime");
 

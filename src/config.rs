@@ -19,19 +19,12 @@ impl fmt::Display for Config {
     }
 }
 
-pub fn default_workers() -> usize {
-    20
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ServerConfig {
     // Host address to listen on
     pub host: String,
     // Port to listen on
     pub port: u16,
-    // Number of threadpool workers
-    #[serde(default = "default_workers")]
-    pub workers: usize,
 }
 
 impl fmt::Display for ScraperConfig {
@@ -75,5 +68,61 @@ pub fn load_config(config_path: &str) -> Result<Config, String> {
             file = config_path,
             error = e
         ))
+    })
+}
+
+fn number_from_env<T: std::str::FromStr>(label: &str) -> Result<T, String> {
+    std::env::var(label)
+        .map_err(|_| format!("No {} in environment variables", label))
+        .and_then(|x| str::parse::<T>(&x).map_err(|_| format!("Could not parse {} as u16", label)))
+}
+
+pub fn from_env() -> Result<Config, String> {
+    let server_config = number_from_env::<u16>("PORT").map(|port| {
+        let host = std::env::var("HOST")
+            .map_err(|_| format!("No HOST in environment variables"))
+            .unwrap_or("0.0.0.0".to_owned());
+
+        ServerConfig { host, port }
+    });
+
+    let scraper_config = std::env::var("CONSUMER_KEY")
+        .map_err(|_| format!("No CONSUMER_KEY in environment variables"))
+        .and_then(|consumer_key| {
+            std::env::var("CONSUMER_SECRET")
+                .map_err(|_| format!("No CONSUMER_SECRET in environment variables"))
+                .map(|consumer_secret| (consumer_key, consumer_secret))
+        })
+        .and_then(|(consumer_key, consumer_secret)| {
+            std::env::var("ACCESS_KEY")
+                .map_err(|_| format!("No ACCESS_KEY in environment variables"))
+                .map(|access_key| (consumer_key, consumer_secret, access_key))
+        })
+        .and_then(|(consumer_key, consumer_secret, access_key)| {
+            std::env::var("ACCESS_SECRET")
+                .map_err(|_| format!("No ACCESS_SECRET in environment variables"))
+                .map(|access_secret| (consumer_key, consumer_secret, access_key, access_secret))
+        })
+        .and_then(
+            |(consumer_key, consumer_secret, access_key, access_secret)| {
+                std::env::var("TOPICS")
+                    .map_err(|_| format!("No TOPICS in environment variables"))
+                    .map(|topics| topics.split(",").map(|x| x.to_owned()).collect())
+                    .map(|topics| ScraperConfig {
+                        consumer_key,
+                        consumer_secret,
+                        access_key,
+                        access_secret,
+                        topics,
+                        batch_size: number_from_env("BATCH_SIZE").ok(),
+                    })
+            },
+        );
+
+    server_config.and_then(|server_config| {
+        scraper_config.map(|scraper_config| Config {
+            scraper: scraper_config,
+            server: server_config,
+        })
     })
 }

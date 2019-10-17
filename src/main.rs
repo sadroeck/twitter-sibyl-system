@@ -8,7 +8,7 @@ mod scraper;
 mod server;
 mod tweet;
 
-fn cmd_line_config() -> String {
+fn cmd_line_config() -> Option<String> {
     let matches = App::new("twitter-sibyl-system")
         .version("0.1")
         .about("Real-time sentiment analysis for twitter topic streams")
@@ -22,7 +22,7 @@ fn cmd_line_config() -> String {
         )
         .get_matches();
 
-    String::from(matches.value_of("config").unwrap_or("config.toml").trim())
+    matches.value_of("config").map(|x| x.trim().to_owned())
 }
 
 fn main() -> std::io::Result<()> {
@@ -32,7 +32,10 @@ fn main() -> std::io::Result<()> {
 
     // Fetch configuration
     let config_uri = cmd_line_config();
-    let config = config::load_config(&config_uri).expect("Invalid configuration");
+    let config = config_uri
+        .and_then(|cfg_uri| config::load_config(&cfg_uri).ok())
+        .or_else(|| config::from_env().ok())
+        .expect("Could not assemble a valid configuration");
 
     // Initialize Scraper
     let scraper = Scraper::new(config.scraper);

@@ -41,7 +41,8 @@ fn main() -> std::io::Result<()> {
     let actor_system = actix_rt::System::new("webservice");
 
     // Initialize server
-    server::run(config.server, scraper.metrics()).expect("Could not start server");
+    server::run(config.server, scraper.time_series(), scraper.metrics())
+        .expect("Could not start server");
 
     // Block until actor system has stopped
     actor_system.run()

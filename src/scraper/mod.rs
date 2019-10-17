@@ -4,6 +4,7 @@ use crate::tweet::Tweet;
 use chrono::NaiveDateTime;
 use futures::stream::Stream;
 use log::{error, info, warn};
+use metrics_runtime::{Controller, Receiver};
 use std::sync::Arc;
 use twitter_stream::Token;
 
@@ -16,7 +17,8 @@ const TWITTER_DATE_FORMAT: &'static str = "%a %b %d %H:%M:%S %z %Y";
 pub struct Scraper {
     api_token: Token<String, String>,
     runtime: tokio::runtime::Runtime,
-    metrics: Vec<Arc<TimeSeries>>,
+    time_series: Vec<Arc<TimeSeries>>,
+    metrics: Receiver,
 }
 
 impl Scraper {
@@ -32,10 +34,14 @@ impl Scraper {
             config.access_key,
             config.access_secret,
         );
+        let receiver = Receiver::builder()
+            .build()
+            .expect("failed to create metrics receiver");
         let mut scraper = Self {
             runtime,
             api_token,
-            metrics: Vec::new(),
+            time_series: Vec::new(),
+            metrics: receiver,
         };
         config
             .topics
@@ -44,19 +50,27 @@ impl Scraper {
         scraper
     }
 
+    pub fn metrics(&self) -> Controller {
+        self.metrics.get_controller()
+    }
+
     /// Subscribe to a stream of tweets containing the specified topic
     pub fn subscribe_to(&mut self, topic: String) {
         info!("Subscribing to topic {}", &topic);
+        let mut sink = self.metrics.get_sink();
+        let tweets_queued = sink.gauge_with_labels("tweets_queued", &[("topic", topic.clone())]);
+        let stall_level = sink.gauge_with_labels("stall_level", &[("topic", topic.clone())]);
 
         // Add a time series reference
         let time_series = Arc::new(TimeSeries::new(topic.as_str()));
-        self.metrics.push(time_series.clone());
+        self.time_series.push(time_series.clone());
 
         let tweet_analyzer = rate_controlled_stream::RateLimitedStream::from_topic(
             self.api_token.clone(),
             topic.clone(),
         )
         .map_err(|err| error!("Error while processing twitter stream: {}", err))
+        //        .inspect(|tweet| info!("Tweet: {tweet:?}", tweet = tweet))
         .and_then(|item| {
             serde_json::from_str::<Tweet>(&item).map_err(|err| {
                 error!(
@@ -65,14 +79,10 @@ impl Scraper {
                 )
             })
         })
-        //        .inspect(|tweet| info!("Tweet: {tweet:?}", tweet = tweet))
+        //            .inspect(|tweet| info!("Tweet: {tweet:?}", tweet = tweet))
         .filter_map(move |tweet| match tweet {
             Tweet::ApiLimit(limit) => {
-                warn!(
-                    "[{topic}] {open} undelivered tweets",
-                    topic = &topic,
-                    open = limit.limit.track
-                );
+                tweets_queued.record(limit.limit.track as i64);
                 None
             }
             Tweet::Content(content) => parse_time(content.created_at.as_str())
@@ -90,11 +100,7 @@ impl Scraper {
                 None
             }
             Tweet::StallWarning(warning) => {
-                warn!(
-                    "[{topic}] Stream stalling: {perc}",
-                    topic = warning.stream_name,
-                    perc = warning.percent_full
-                );
+                stall_level.record(warning.percent_full as i64);
                 None
             }
         })
@@ -111,8 +117,8 @@ impl Scraper {
         self.runtime.spawn(tweet_analyzer);
     }
 
-    pub fn metrics(&self) -> Vec<Arc<TimeSeries>> {
-        self.metrics.clone()
+    pub fn time_series(&self) -> Vec<Arc<TimeSeries>> {
+        self.time_series.clone()
     }
 }
 

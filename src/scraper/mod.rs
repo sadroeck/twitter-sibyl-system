@@ -6,6 +6,7 @@ use futures::stream::Stream;
 use log::{error, info, warn};
 use metrics_runtime::{Controller, Receiver};
 use std::sync::Arc;
+use std::time::Instant;
 use twitter_stream::Token;
 
 pub mod metrics;
@@ -62,6 +63,9 @@ impl Scraper {
         let stall_level = sink.gauge_with_labels("stall_level", &[("topic", topic.clone())]);
         let processed_tweets =
             sink.counter_with_labels("tweets_processed", &[("topic", topic.clone())]);
+        let processing_time =
+            sink.histogram_with_labels("processing_time", &[("topic", topic.clone())]);
+        let storage_time = sink.histogram_with_labels("storage_time", &[("topic", topic.clone())]);
 
         // Add a time series reference
         let time_series = Arc::new(TimeSeries::new(topic.as_str()));
@@ -74,15 +78,18 @@ impl Scraper {
         .map_err(|err| error!("Error while processing twitter stream: {}", err))
         //        .inspect(|tweet| info!("Tweet: {tweet:?}", tweet = tweet))
         .and_then(|item| {
-            serde_json::from_str::<Tweet>(&item).map_err(|err| {
-                error!(
-                    "Error while parsing tweet as JSON: {}\nTweet: {}",
-                    err, item
-                )
-            })
+            let now = Instant::now();
+            serde_json::from_str::<Tweet>(&item)
+                .map_err(|err| {
+                    error!(
+                        "Error while parsing tweet as JSON: {}\nTweet: {}",
+                        err, item
+                    )
+                })
+                .map(|x| (now, x))
         })
         //            .inspect(|tweet| info!("Tweet: {tweet:?}", tweet = tweet))
-        .filter_map(move |tweet| match tweet {
+        .filter_map(move |(start, tweet)| match tweet {
             Tweet::ApiLimit(limit) => {
                 tweets_queued.record(limit.limit.track as i64);
                 None
@@ -92,7 +99,8 @@ impl Scraper {
                     time: time.timestamp(),
                     value: sentiment::message_value(content.text.as_str()),
                 })
-                .ok(),
+                .ok()
+                .map(|sample| (start, sample)),
             Tweet::Disconnect(disconnect) => {
                 warn!(
                     "[{topic}] Stream disconnected: {reason}",
@@ -106,15 +114,19 @@ impl Scraper {
                 None
             }
         })
-        .for_each(move |sample| {
+        .for_each(move |(start, sample)| {
+            let storage_start = Instant::now();
             processed_tweets.increment();
-            time_series
+            processing_time.record_timing(start, storage_start);
+            let result = time_series
                 .data
                 .write()
                 .map(|mut store| {
                     store.push(sample);
                 })
-                .map_err(|err| error!("Error storing sample: {}", err))
+                .map_err(|err| error!("Error storing sample: {}", err));
+            storage_time.record_timing(storage_start, Instant::now());
+            result
         });
 
         self.runtime.spawn(tweet_analyzer);

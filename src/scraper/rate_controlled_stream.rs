@@ -108,7 +108,7 @@ impl Stream for RateLimitedStream {
                     Ok(Async::Ready(Some(content)))
                 }
                 Ok(Async::Ready(None)) => {
-                    error!("[{topic}] Stream has stoppped", topic = &self.topic);
+                    error!("[{topic}] Stream has stopped", topic = &self.topic);
                     Ok(Async::Ready(None))
                 }
             },

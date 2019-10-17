@@ -4,6 +4,7 @@ use actix_files as fs;
 use actix_web::dev::Server;
 use actix_web::http::StatusCode;
 use actix_web::{get, guard, middleware, web, App, HttpResponse, HttpServer};
+use log::error;
 use metrics_core::{Builder, Drain, Observe};
 use metrics_runtime::observers::PrometheusBuilder;
 use metrics_runtime::Controller;
@@ -81,7 +82,14 @@ pub fn run(
                     ),
             )
     };
+    let port = std::env::var("PORT")
+        .map_err(|_e| ())
+        .and_then(|x| {
+            str::parse::<u16>(&x).map_err(|e| error!("Could not parse PORT variable as u16: {}", e))
+        })
+        .unwrap_or(config.port);
+    let host = std::env::var("HOST").unwrap_or(config.host);
     HttpServer::new(create_server)
-        .bind(format!("{}:{}", config.host, config.port))
+        .bind(format!("{}:{}", host, port))
         .map(|server| server.start())
 }

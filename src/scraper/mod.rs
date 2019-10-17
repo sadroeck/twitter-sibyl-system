@@ -3,7 +3,7 @@ use crate::scraper::metrics::{Sample, TimeSeries};
 use crate::tweet::Tweet;
 use chrono::NaiveDateTime;
 use futures::stream::Stream;
-use log::{error, info};
+use log::{error, info, warn};
 use std::sync::Arc;
 use twitter_stream::Token;
 
@@ -58,14 +58,25 @@ impl Scraper {
         )
         .map_err(|err| error!("Error while processing twitter stream: {}", err))
         .and_then(|item| {
-            serde_json::from_str::<Tweet>(&item)
-                .map_err(|err| error!("Error while parsing tweet as JSON: {}", err))
-        })
-        .and_then(|tweet| {
-            parse_time(tweet.created_at.as_str()).map(|time| Sample {
-                time: time.timestamp(),
-                value: sentiment::message_value(tweet.text.as_str()),
+            serde_json::from_str::<Tweet>(&item).map_err(|err| {
+                error!(
+                    "Error while parsing tweet as JSON: {}\nTweet: {}",
+                    err, item
+                )
             })
+        })
+        //        .inspect(|tweet| info!("Tweet: {tweet:?}", tweet = tweet))
+        .filter_map(|tweet| match tweet {
+            Tweet::ApiLimit(limit) => {
+                warn!("Limit warning: {}", limit.track);
+                None
+            }
+            Tweet::Content(content) => parse_time(content.created_at.as_str())
+                .map(|time| Sample {
+                    time: time.timestamp(),
+                    value: sentiment::message_value(content.text.as_str()),
+                })
+                .ok(),
         })
         .for_each(move |sample| {
             time_series

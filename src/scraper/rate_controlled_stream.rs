@@ -14,7 +14,6 @@ pub struct RateLimitedStream {
     inner: FlattenStream<FutureTwitterStream>,
     topic: String,
     api_token: ApiToken,
-    halted_since: Option<Instant>,
     state: StreamAction,
 }
 

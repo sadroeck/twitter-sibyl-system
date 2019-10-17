@@ -4,10 +4,11 @@ use actix_files as fs;
 use actix_web::dev::Server;
 use actix_web::http::StatusCode;
 use actix_web::{get, guard, middleware, web, App, HttpResponse, HttpServer};
+use chrono::Utc;
 use metrics_core::{Builder, Drain, Observe};
 use metrics_runtime::observers::PrometheusBuilder;
 use metrics_runtime::Controller;
-use serde_derive::Serialize;
+use serde_derive::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Home page
@@ -35,8 +36,17 @@ struct Series<'a> {
     data: Vec<Sample>,
 }
 
+#[derive(Deserialize)]
+struct TimeQuery {
+    pub t_minus: Option<i64>,
+}
+
 #[get("/metrics")]
-fn time_series(state: web::Data<Vec<Arc<TimeSeries>>>) -> HttpResponse {
+fn time_series(
+    state: web::Data<Vec<Arc<TimeSeries>>>,
+    query: web::Query<TimeQuery>,
+) -> HttpResponse {
+    let min_time = Utc::now().timestamp() - query.t_minus.unwrap_or(0);
     let data: Vec<_> = state
         .iter()
         .filter_map(|series| {
@@ -47,7 +57,10 @@ fn time_series(state: web::Data<Vec<Arc<TimeSeries>>>) -> HttpResponse {
                 .ok()
                 .map(|values| Series {
                     topic: series.topic.as_str(),
-                    data: values,
+                    data: values
+                        .into_iter()
+                        .filter(|sample| sample.time > min_time)
+                        .collect(),
                 })
         })
         .collect();

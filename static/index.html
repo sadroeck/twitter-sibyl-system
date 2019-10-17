@@ -245,7 +245,7 @@
 
         const updateSeries = () => {
             console.log("Updating metrics");
-            return axios.get("/metrics")
+            return axios.get("/metrics?t_minus=3600")
             .then(resp => resp.data)
             .then(data => {
                 let min_date = Number.MAX_SAFE_INTEGER;

@@ -60,6 +60,8 @@ impl Scraper {
         let mut sink = self.metrics.get_sink();
         let tweets_queued = sink.gauge_with_labels("tweets_queued", &[("topic", topic.clone())]);
         let stall_level = sink.gauge_with_labels("stall_level", &[("topic", topic.clone())]);
+        let processed_tweets =
+            sink.counter_with_labels("tweets_processed", &[("topic", topic.clone())]);
 
         // Add a time series reference
         let time_series = Arc::new(TimeSeries::new(topic.as_str()));
@@ -105,6 +107,7 @@ impl Scraper {
             }
         })
         .for_each(move |sample| {
+            processed_tweets.increment();
             time_series
                 .data
                 .write()

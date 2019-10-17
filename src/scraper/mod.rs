@@ -77,6 +77,22 @@ impl Scraper {
                     value: sentiment::message_value(content.text.as_str()),
                 })
                 .ok(),
+            Tweet::Disconnect(disconnect) => {
+                warn!(
+                    "[{topic}] Stream disconnected: {reason}",
+                    topic = disconnect.stream_name,
+                    reason = disconnect.reason
+                );
+                None
+            }
+            Tweet::StallWarning(warning) => {
+                warn!(
+                    "[{topic}] Stream stalling: {perc}",
+                    topic = warning.stream_name,
+                    perc = warning.percent_full
+                );
+                None
+            }
         })
         .for_each(move |sample| {
             time_series

@@ -70,6 +70,8 @@ impl Scraper {
         let processed_tweets =
             sink.counter_with_labels("tweets_processed", &[("topic", topic.clone())]);
         let storage_time = sink.histogram_with_labels("storage_time", &[("topic", topic.clone())]);
+        let batch_size = self.batch_size;
+        let executor = self.runtime.executor();
 
         // Add a time series reference
         let time_series = Arc::new(TimeSeries::new(topic.as_str()));
@@ -79,62 +81,76 @@ impl Scraper {
             self.api_token.clone(),
             topic.clone(),
         )
-        .map_err(|err| error!("Error while processing twitter stream: {}", err))
-        //        .inspect(|tweet| info!("Tweet: {tweet:?}", tweet = tweet))
-        .and_then(|item| {
-            let now = Instant::now();
-            serde_json::from_str::<Tweet>(&item)
-                .map_err(|err| {
-                    error!(
-                        "Error while parsing tweet as JSON: {}\nTweet: {}",
-                        err, item
-                    )
-                })
-                .map(|x| (now, x))
-        })
-        //            .inspect(|tweet| info!("Tweet: {tweet:?}", tweet = tweet))
-        .filter_map(move |(start, tweet)| match tweet {
-            Tweet::ApiLimit(limit) => {
-                tweets_queued.record(limit.limit.track as i64);
-                None
-            }
-            Tweet::Content(content) => {
-                Some((start, sentiment::message_value(content.text.as_str())))
-            }
-            Tweet::Disconnect(disconnect) => {
-                warn!(
-                    "[{topic}] Stream disconnected: {reason}",
-                    topic = disconnect.stream_name,
-                    reason = disconnect.reason
-                );
-                None
-            }
-            Tweet::StallWarning(warning) => {
-                stall_level.record(warning.percent_full as i64);
-                None
-            }
-        })
-        .map(move |(start, sample)| {
-            processing_time.record_timing(start, Instant::now());
-            sample
-        })
-        .chunks(self.batch_size)
-        .for_each(move |samples| {
-            processed_tweets.record(samples.len() as u64);
-            let storage_start = Instant::now();
-            let timestamp = Utc::now().timestamp();
-            let result = time_series
-                .data
-                .write()
-                .map(|mut store| {
-                    store.extend(samples.into_iter().map(|value| Sample {
-                        time: timestamp,
-                        value,
-                    }));
-                })
-                .map_err(|err| error!("Error storing sample: {}", err));
-            storage_time.record_timing(storage_start, Instant::now());
-            result
+        .map_err(|err| error!("Error processing tweet batch: {}", err))
+        .chunks(2)
+        .for_each(move |items| {
+            // Clone all shared references
+            let processed_tweets = processed_tweets.clone();
+            let processing_time = processing_time.clone();
+            let stall_level = stall_level.clone();
+            let storage_time = storage_time.clone();
+            let time_series = time_series.clone();
+            let tweets_queued = tweets_queued.clone();
+
+            // Lazily schedule the batch processing onto the threadpool
+            let tweet_processing = futures::future::lazy(move || {
+                let samples = items.into_iter().filter_map(|item| {
+                    let start = Instant::now();
+                    serde_json::from_str::<Tweet>(&item)
+                        .map_err(|err| {
+                            error!(
+                                "Error while parsing tweet as JSON: {}\nTweet: {}",
+                                err, item
+                            )
+                        })
+                        .ok()
+                        .and_then(|tweet| match tweet {
+                            Tweet::ApiLimit(limit) => {
+                                tweets_queued.record(limit.limit.track as i64);
+                                None
+                            }
+                            Tweet::Content(content) => {
+                                Some(sentiment::message_value(content.text.as_str()))
+                            }
+                            Tweet::Disconnect(disconnect) => {
+                                warn!(
+                                    "[{topic}] Stream disconnected: {reason}",
+                                    topic = disconnect.stream_name,
+                                    reason = disconnect.reason
+                                );
+                                None
+                            }
+                            Tweet::StallWarning(warning) => {
+                                stall_level.record(warning.percent_full as i64);
+                                None
+                            }
+                        })
+                        .map(|sample| {
+                            processing_time.record_timing(start, Instant::now());
+                            sample
+                        })
+                });
+
+                processed_tweets.record(batch_size as u64);
+                let storage_start = Instant::now();
+                let timestamp = Utc::now().timestamp();
+                let result = time_series
+                    .data
+                    .write()
+                    .map(|mut store| {
+                        store.extend(samples.map(|value| Sample {
+                            time: timestamp,
+                            value,
+                        }));
+                    })
+                    .map_err(|err| error!("Error storing sample: {}", err));
+                storage_time.record_timing(storage_start, Instant::now());
+                result
+            });
+
+            // Drive the stream indefinitely on the threadpool
+            executor.spawn(tweet_processing);
+            Ok(())
         });
 
         self.runtime.spawn(tweet_analyzer);

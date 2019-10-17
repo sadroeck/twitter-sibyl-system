@@ -1,10 +1,8 @@
 [server]
 host = "0.0.0.0"
 port = 7777
-workers = 4
 
 [scraper]
-workers = 1
 consumer_key = ""
 consumer_secret = ""
 access_key = ""

@@ -4,6 +4,10 @@ A toy project to track twitter topic sentiment over time.
 
 https://twitter-sibyl-system.herokuapp.com/
 
+## Architecture
+
+![Architecture diagram](./docs/Sibyl-system-architecture.svg)
+
 ## Build
 
 ```shell

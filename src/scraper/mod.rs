@@ -114,10 +114,6 @@ impl Scraper {
     pub fn metrics(&self) -> Vec<Arc<TimeSeries>> {
         self.metrics.clone()
     }
-
-    //    pub fn run(&mut self) -> Result<(), ()> {
-    //        self.runtime.block_on(futures::future::empty())
-    //    }
 }
 
 fn parse_time(time_str: &str) -> Result<NaiveDateTime, ()> {

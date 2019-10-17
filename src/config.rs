@@ -49,6 +49,7 @@ pub struct ScraperConfig {
     pub access_key: String,
     pub access_secret: String,
     pub topics: Vec<String>,
+    pub batch_size: Option<usize>,
 }
 
 pub fn load_config(config_path: &str) -> Result<Config, String> {

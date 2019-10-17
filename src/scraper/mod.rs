@@ -14,8 +14,10 @@ mod rate_controlled_stream;
 mod sentiment;
 
 const TWITTER_DATE_FORMAT: &'static str = "%a %b %d %H:%M:%S %z %Y";
+const DEFAULT_BATCH_SIZE: usize = 100;
 
 pub struct Scraper {
+    batch_size: usize,
     api_token: Token<String, String>,
     runtime: tokio::runtime::Runtime,
     time_series: Vec<Arc<TimeSeries>>,
@@ -39,6 +41,7 @@ impl Scraper {
             .build()
             .expect("failed to create metrics receiver");
         let mut scraper = Self {
+            batch_size: config.batch_size.unwrap_or(DEFAULT_BATCH_SIZE),
             runtime,
             api_token,
             time_series: Vec::new(),
@@ -61,10 +64,10 @@ impl Scraper {
         let mut sink = self.metrics.get_sink();
         let tweets_queued = sink.gauge_with_labels("tweets_queued", &[("topic", topic.clone())]);
         let stall_level = sink.gauge_with_labels("stall_level", &[("topic", topic.clone())]);
-        let processed_tweets =
-            sink.counter_with_labels("tweets_processed", &[("topic", topic.clone())]);
         let processing_time =
             sink.histogram_with_labels("processing_time", &[("topic", topic.clone())]);
+        let processed_tweets =
+            sink.counter_with_labels("tweets_processed", &[("topic", topic.clone())]);
         let storage_time = sink.histogram_with_labels("storage_time", &[("topic", topic.clone())]);
 
         // Add a time series reference
@@ -114,15 +117,19 @@ impl Scraper {
                 None
             }
         })
-        .for_each(move |(start, sample)| {
+        .map(move |(start, sample)| {
+            processing_time.record_timing(start, Instant::now());
+            sample
+        })
+        .chunks(self.batch_size)
+        .for_each(move |samples| {
+            processed_tweets.record(samples.len() as u64);
             let storage_start = Instant::now();
-            processed_tweets.increment();
-            processing_time.record_timing(start, storage_start);
             let result = time_series
                 .data
                 .write()
                 .map(|mut store| {
-                    store.push(sample);
+                    store.extend_from_slice(&samples[..]);
                 })
                 .map_err(|err| error!("Error storing sample: {}", err));
             storage_time.record_timing(storage_start, Instant::now());

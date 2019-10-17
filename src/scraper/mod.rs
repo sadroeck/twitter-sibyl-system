@@ -6,6 +6,7 @@ use chrono::Utc;
 use futures::stream::Stream;
 use log::{error, info, warn};
 use metrics_runtime::{Controller, Receiver};
+use std::cmp::max;
 use std::sync::Arc;
 use std::time::Instant;
 use twitter_stream::Token;
@@ -28,7 +29,7 @@ pub struct Scraper {
 impl Scraper {
     pub fn new(config: ScraperConfig) -> Self {
         let runtime = tokio::runtime::Builder::new()
-            .core_threads(config.topics.len())
+            .core_threads(max(config.topics.len() * 2, num_cpus::get()))
             .build()
             .expect("Could not initialize scraper runtime");
 

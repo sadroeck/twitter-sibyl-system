@@ -83,11 +83,6 @@ impl Stream for RateLimitedStream {
         match &mut self.state {
             StreamAction::Continue => match self.inner.poll() {
                 Err(TwitterError::Http(status_code)) => {
-                    error!(
-                        "[{topic} Received error code {code}",
-                        topic = &self.topic,
-                        code = status_code
-                    );
                     self.state = process_twitter_error(status_code, self.previous_delay);
                     match &self.state {
                         StreamAction::RestartAfter { seconds, .. } => {

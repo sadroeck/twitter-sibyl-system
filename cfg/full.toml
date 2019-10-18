@@ -1,13 +1,29 @@
 [server]
-host = "0.0.0.0"
+# Address the HTTP server will listen on
+host = "localhost"
+# Port the HTTP server will listen on
 port = 7777
 
 [scraper]
+# Twitter API consumer key
 consumer_key = ""
+# Twitter API consumer secret
 consumer_secret = ""
+# Twitter API access key
 access_key = ""
+# Twitter API secret key
 access_secret = ""
+# List of topics to fetch & process new tweets for
 topics = [
-    "math",
-    "science",
+    "twitter",
+    "facebook",
+    "google",
+    "travel",
+    "art",
+    "music",
+    "photography",
+    "love",
+    "fashion",
+    "food"
 ]
+

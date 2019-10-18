@@ -84,7 +84,7 @@ impl Scraper {
         )
         .map_err(|err| error!("Error processing tweet batch: {}", err))
         .chunks(2)
-        .for_each(move |items| {
+        .map(move |items| {
             // Clone all shared references
             let processed_tweets = processed_tweets.clone();
             let processing_time = processing_time.clone();
@@ -150,9 +150,10 @@ impl Scraper {
             });
 
             // Drive the stream indefinitely on the threadpool
-            executor.spawn(tweet_processing);
-            Ok(())
-        });
+            Ok(executor.spawn(tweet_processing))
+        })
+        .buffer_unordered(100)
+        .for_each(|()| Ok(()));
 
         self.runtime.spawn(tweet_analyzer);
     }

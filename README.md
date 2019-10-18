@@ -4,6 +4,15 @@ A toy project to track twitter topic sentiment over time.
 
 https://twitter-sibyl-system.herokuapp.com/
 
+## Endpoints
+
+The application exposes three HTTP endpoints:
+
+* `/`: Which shows a line chart containing the time series of sentiment values for each provided topic. The chart will auto-update every 10 seconds
+* `/metrics?t_minus=<val>`: Which replies with JSON formatted time-series data for all topics
+* `/prometheus`: Which exposes [Prometheus](https://prometheus.io/) formatted auxiliary statistics about the application, 
+e.g tweet processing rate, timing & backlog
+
 ## Architecture
 
 ![Architecture diagram](./docs/Sibyl-system-architecture.svg)
@@ -39,7 +48,6 @@ The following values are optional:
 
 * `HOST` -> Address the HTTP server will listen on, defaults to `0.0.0.0`
 * `BATCH_SIZE` -> Tweets are processed in batches of this size, defaults to `100`
-
 
 ## Deploy
 
